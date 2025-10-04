@@ -302,7 +302,7 @@ if (require.main === module) {
   console.log("======================================================\n");
 
   // Generate main sample data
-  const mainData = createSampleExcelFile("enhanced_sample.xlsx");
+  const mainData = createSampleExcelFile("sample.xlsx");
 
   // Generate test scenarios
   const testData = createTestScenarios();
