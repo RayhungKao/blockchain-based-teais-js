@@ -1,27 +1,82 @@
 const XLSX = require("xlsx");
 const crypto = require("crypto");
+const { CompanyPaillierKeyGenerator } = require("./companyKeyGenerator");
 
 /**
  * Generate sample accounting data for blockchain-based triple-entry AIS
  * Based on research papers on triple-entry bookkeeping and fraud prevention
  *
+ * Enhanced with real Paillier keypairs for each company
+ * Each company can encrypt/decrypt their own transaction amounts
+ *
  * References:
- * - Ijiri, Y. (1986). A framework for triple-entry bookkeeping. The Accounting Review
+ * - JuihungKao: Multi-party Paillier encryption for accounting systems
  * - Blockchain Technology for Triple-Entry Accounting System (ResearchGate)
  * - Triple-entry bookkeeping with blockchain implementations
  */
 
-// Sample companies and parties for realistic transactions
-const companies = [
-  { name: "TechCorp Solutions", id: "TC001", type: "vendor" },
-  { name: "Global Manufacturing Inc", id: "GM002", type: "customer" },
-  { name: "Supply Chain Logistics", id: "SC003", type: "vendor" },
-  { name: "Digital Services Ltd", id: "DS004", type: "customer" },
-  { name: "Advanced Materials Co", id: "AM005", type: "vendor" },
-  { name: "Retail Distribution Network", id: "RD006", type: "customer" },
-  { name: "Financial Services Group", id: "FS007", type: "service_provider" },
-  { name: "Transportation Systems", id: "TS008", type: "vendor" },
-];
+// Initialize the company key generator
+const keyGenerator = new CompanyPaillierKeyGenerator();
+
+// Initialize companies with real Paillier keypairs
+function initializeCompaniesWithKeypairs() {
+  console.log("🔑 Initializing companies with real Paillier keypairs...");
+
+  const companyTemplates = [
+    { name: "TechCorp Solutions", id: "TC001", type: "vendor" },
+    { name: "Global Manufacturing Inc", id: "GM002", type: "customer" },
+    { name: "Supply Chain Logistics", id: "SC003", type: "vendor" },
+    { name: "Digital Services Ltd", id: "DS004", type: "customer" },
+    { name: "Advanced Materials Co", id: "AM005", type: "vendor" },
+    { name: "Retail Distribution Network", id: "RD006", type: "customer" },
+    { name: "Financial Services Group", id: "FS007", type: "service_provider" },
+    { name: "Transportation Systems", id: "TS008", type: "vendor" },
+  ];
+
+  const companiesWithKeys = companyTemplates.map((company, index) => {
+    console.log(`  Generating keys for ${company.name}...`);
+
+    // Generate real Paillier keypair
+    const paillierKeypair = keyGenerator.generateCompanyKeypair(index);
+
+    // Generate signing keypair
+    const signingKeypair = keyGenerator.generateSigningKeypair();
+
+    // Serialize public key for Excel compatibility
+    const publicKeyBase64 = keyGenerator.serializePublicKeyForExcel(
+      paillierKeypair.publicKey
+    );
+
+    return {
+      ...company,
+      // Real Paillier keys
+      paillierPublicKey: paillierKeypair.publicKey,
+      paillierPrivateKey: paillierKeypair.privateKey,
+
+      // Digital signature keys
+      signingPublicKey: signingKeypair.publicKey,
+      signingPrivateKey: signingKeypair.privateKey,
+
+      // For Excel compatibility (backward compatibility)
+      publicKey: publicKeyBase64,
+
+      // Metadata
+      keyMetadata: {
+        paillierModulus: paillierKeypair.publicKey.n.toString(),
+        keySize: paillierKeypair.metadata.keySize,
+        companyIndex: index,
+      },
+    };
+  });
+
+  console.log(
+    `✅ Initialized ${companiesWithKeys.length} companies with real keypairs`
+  );
+  return companiesWithKeys;
+}
+
+// Generate companies with real keys
+const companies = initializeCompaniesWithKeypairs();
 
 // Sample products/services for transactions
 const items = [
@@ -114,9 +169,13 @@ function generateSampleTransactions(count = 50) {
     const unitPrice = item.basePrice * (0.8 + Math.random() * 0.4); // ±20% variation
     const amount = quantity * unitPrice;
 
-    // Generate cryptographic keys for both parties
-    const pkSender = generateKeyPair();
-    const pkRecipient = generateKeyPair();
+    // Use the actual public keys from the company records
+    const pkSender = seller.publicKey; // Base64 for Excel compatibility
+    const pkRecipient = buyer.publicKey; // Base64 for Excel compatibility
+
+    // Store real Paillier public keys for encryption (NEW!)
+    const senderPaillierKey = seller.paillierPublicKey;
+    const recipientPaillierKey = buyer.paillierPublicKey;
 
     // Generate hash of transaction info (simplified for demo)
     const transactionInfo = `${seller.id}-${
@@ -137,15 +196,33 @@ function generateSampleTransactions(count = 50) {
       "unit-price": parseFloat(unitPrice.toFixed(2)),
       amount: parseFloat(amount.toFixed(2)),
       "item-description": item.description,
+
+      // Company identification keys (Excel compatible)
       pk_sender: pkSender,
       pk_recipient: pkRecipient,
+
+      // Company IDs for lookup
+      sender_id: seller.id,
+      recipient_id: buyer.id,
+
+      // Real Paillier key metadata (for future dual encryption)
+      sender_paillier_n: senderPaillierKey.n.toString(),
+      recipient_paillier_n: recipientPaillierKey.n.toString(),
+      sender_paillier_g: senderPaillierKey.g.toString(),
+      recipient_paillier_g: recipientPaillierKey.g.toString(),
+
+      // Transaction integrity
       "hashed-AT-info": hashedATInfo,
-      "HE_pk_sender(amount)": "", // Will be filled by encryption process
-      "HE_pk_recipient(amount)": "", // Will be filled by encryption process
-      homomorphic_original_sum: "", // Will be calculated
-      homomorphic_total_sum: "", // Will be calculated
-      decrypted_original_sum_hash: "", // Will be calculated
-      decrypted_total_sum_hash: "", // Will be calculated
+
+      // Encryption fields (will be filled by dual encryption process)
+      "HE_pk_sender(amount)": "", // Encrypted with sender's Paillier key
+      "HE_pk_recipient(amount)": "", // Encrypted with recipient's Paillier key
+
+      // Processing fields
+      homomorphic_original_sum: "",
+      homomorphic_total_sum: "",
+      decrypted_original_sum_hash: "",
+      decrypted_total_sum_hash: "",
     };
 
     transactions.push(transaction);
@@ -180,7 +257,7 @@ function generateBlockchainMetadata(transactions) {
 }
 
 // Create Excel file with sample data
-function createSampleExcelFile(filename = "enhanced_sample.xlsx") {
+function createSampleExcelFile(filename = "sample.xlsx") {
   console.log("Generating sample accounting transactions...");
 
   // Generate base transactions
@@ -309,7 +386,7 @@ if (require.main === module) {
 
   console.log("\n📊 Sample data generation completed!");
   console.log("Files created:");
-  console.log("- enhanced_sample.xlsx (main sample data)");
+  console.log("- sample.xlsx (main sample data)");
   console.log("- fraud_detection_test_scenarios.xlsx (test scenarios)");
   console.log("\nThe data includes realistic accounting transactions with:");
   console.log("✅ Company names and transaction details");
@@ -317,6 +394,45 @@ if (require.main === module) {
   console.log("✅ Transaction hashes and blockchain metadata");
   console.log("✅ Fields for homomorphic encryption testing");
   console.log("✅ Various transaction patterns for fraud detection");
+  console.log("✅ Real Paillier keypairs for each company (NEW!)");
+  console.log("✅ Company-specific encryption capabilities (NEW!)");
+}
+
+// Export company keypairs for use by other modules
+function getCompanyKeypairs() {
+  return companies.map((company) => ({
+    id: company.id,
+    name: company.name,
+    type: company.type,
+    paillierPublicKey: company.paillierPublicKey,
+    paillierPrivateKey: company.paillierPrivateKey,
+    signingPublicKey: company.signingPublicKey,
+    signingPrivateKey: company.signingPrivateKey,
+    keyMetadata: company.keyMetadata,
+  }));
+}
+
+// Get public keys only (for external verification)
+function getCompanyPublicKeys() {
+  return companies.map((company) => ({
+    id: company.id,
+    name: company.name,
+    type: company.type,
+    paillierPublicKey: company.paillierPublicKey,
+    signingPublicKey: company.signingPublicKey,
+    publicKeyBase64: company.publicKey,
+    keyMetadata: company.keyMetadata,
+  }));
+}
+
+// Find company by ID
+function getCompanyById(companyId) {
+  return companies.find((company) => company.id === companyId);
+}
+
+// Find company by name
+function getCompanyByName(companyName) {
+  return companies.find((company) => company.name === companyName);
 }
 
 module.exports = {
@@ -324,4 +440,10 @@ module.exports = {
   generateBlockchainMetadata,
   createSampleExcelFile,
   createTestScenarios,
+  // NEW: Company keypair functions
+  getCompanyKeypairs,
+  getCompanyPublicKeys,
+  getCompanyById,
+  getCompanyByName,
+  companies, // Export companies array directly
 };

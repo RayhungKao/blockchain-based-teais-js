@@ -12,12 +12,7 @@ async function processAccounting(data) {
 
   // Initialize Paillier cryptosystem
   console.log("Initializing Paillier encryption...");
-
-  // For normal mode with larger parameters
   const paillier = new PaillierEncryption();
-  // For test mode with smaller parameters
-  // const paillier = new PaillierEncryption(true);
-
   console.log("Paillier encryption initialized.");
 
   // Encrypt transaction amounts
@@ -36,10 +31,10 @@ async function processAccounting(data) {
   const decryptedSum = paillier.decrypt(totalSum);
 
   // Calculate expected sum of encryptable amounts for comparison
-  // IMPORTANT: Use the same modulus (n) that Paillier uses internally, not (n-1)
+  // IMPORTANT: Use the same modulus (n) that Paillier uses internally
   const actualEncryptableSum = data.reduce((sum, row, index) => {
     const amountInCents = Math.round(parseFloat(row.amount) * 100);
-    const encryptableAmount = bigInt(amountInCents).mod(paillier.n); // Use n, not n-1
+    const encryptableAmount = bigInt(amountInCents).mod(paillier.n);
 
     // Debug: show the calculation for first few items
     if (index < 5) {
@@ -51,14 +46,13 @@ async function processAccounting(data) {
     }
 
     // Apply modular arithmetic at each step to match Paillier behavior
-    return sum.add(encryptableAmount).mod(paillier.n); // Use n, not n-1
+    return sum.add(encryptableAmount).mod(paillier.n);
   }, bigInt(0));
 
   // Also sum the stored encryptable amounts from the encrypted data with modular arithmetic
-  // NOTE: The stored amounts were calculated using n-1, so we need to recalculate them with n
   const storedEncryptableSum = encryptedData.reduce((sum, row) => {
     const amountInCents = Math.round(parseFloat(row.amount) * 100);
-    const encryptableAmount = bigInt(amountInCents).mod(paillier.n); // Recalculate with n
+    const encryptableAmount = bigInt(amountInCents).mod(paillier.n);
     return sum.add(encryptableAmount).mod(paillier.n);
   }, bigInt(0));
 
